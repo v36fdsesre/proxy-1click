@@ -14,7 +14,7 @@ const applyProxy = (p) =>
           mode: "fixed_servers",
           rules: {
             singleProxy: { scheme: "http", host: p.host, port: p.port },
-            bypassList: ["localhost", "127.0.0.1", "<local>", "api.github.com"],
+            bypassList: ["localhost", "127.0.0.1", "<local>", "api.github.com", "github.com", "*.github.com", "*.githubusercontent.com"],
           },
         },
         scope: "regular",
@@ -108,7 +108,7 @@ function adHtml() {
 
 function updHtml() {
   return S.upd && S.upd.newer
-    ? `<a class="upd" href="${esc(S.upd.url)}" target="_blank" rel="noopener">Доступна версия ${esc(S.upd.latest)}. Скачать</a>`
+    ? `<a class="upd" href="updater.html" target="_blank">Доступна версия ${esc(S.upd.latest)}. Обновить</a>`
     : "";
 }
 
