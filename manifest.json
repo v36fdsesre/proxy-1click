@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Космопрокси",
+  "version": "2.5.1",
+  "description": "Прокси в один клик: Нидерланды и Канада.",
+  "permissions": ["proxy", "storage", "webRequest", "webRequestAuthProvider", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "Космопрокси",
+    "default_popup": "popup.html"
+  }
+}

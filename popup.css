@@ -1,0 +1,108 @@
+:root {
+  --bg: #ffffff;
+  --card: #f3f5f7;
+  --line: #e4e8ec;
+  --ink: #1f2a33;
+  --muted: #7a8794;
+  --green: #3f9d5b;
+  --green-soft: #e3f3e8;
+  --bad: #d4483d;
+  --off: #c3ccd4;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14181d;
+    --card: #1e242b;
+    --line: #2a323a;
+    --ink: #eef2f5;
+    --muted: #8d9aa7;
+    --green: #5cc27a;
+    --green-soft: #1b3326;
+    --off: #46515c;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  width: 360px; height: 560px; margin: 0; display: flex; flex-direction: column;
+  background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, "Segoe UI", Roboto, sans-serif;
+}
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; }
+button:focus-visible, li:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; min-height: 56px; }
+header .title { flex: 1; font-weight: 700; font-size: 16px; }
+.logo { width: 26px; height: 26px; }
+.icon-btn { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); }
+.icon-btn:hover { background: var(--card); }
+.icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+/* ---------- Главная ---------- */
+.home { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 8px 18px 18px; text-align: center; }
+.state { margin-top: 10px; font-size: 12px; font-weight: 700; letter-spacing: .1em; color: var(--muted); }
+.home.on .state { color: var(--green); }
+.sub { margin: 4px 0 0; min-height: 21px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sub.err { color: var(--bad); }
+
+.power {
+  position: relative; width: 150px; height: 150px; margin-top: 26px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--card); border: 4px solid var(--off); color: var(--off);
+  transition: background .2s, border-color .2s, color .2s;
+}
+.power svg { width: 60px; height: 60px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.home.on .power { background: var(--green); border-color: var(--green); color: #fff; box-shadow: 0 0 0 10px var(--green-soft); }
+.home.busy .power { border-color: transparent; border-top-color: var(--green); color: var(--green); animation: spin 1s linear infinite; }
+.home.busy .power svg { animation: spin 1s linear infinite reverse; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loc {
+  margin-top: auto; width: 100%; display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; background: var(--card); border-radius: 14px; text-align: left;
+}
+.loc:hover { background: var(--line); }
+.loc .meta { flex: 1; }
+.loc .meta b { display: block; font-size: 15px; }
+.loc .meta span { color: var(--muted); font-size: 12px; }
+.ping { font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ping.good { color: var(--green); }
+.chev { width: 18px; height: 18px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.flag { width: 36px; height: 26px; border-radius: 4px; flex: none; box-shadow: 0 0 0 1px rgba(0,0,0,.12); }
+
+.ad {
+  display: block; width: 100%; margin-top: 18px; padding: 10px 12px; text-align: left;
+  background: var(--card); border: 1px dashed var(--line); border-radius: 12px;
+  color: var(--ink); text-decoration: none; font-size: 12px;
+}
+.ad b { display: block; font-size: 13px; }
+.ad span { color: var(--muted); }
+.ad .ad-tag { float: right; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+a.ad:hover { background: var(--line); }
+
+/* ---------- Список ---------- */
+.rows { list-style: none; margin: 0; padding: 0 8px; }
+.rows li { display: flex; align-items: center; gap: 14px; padding: 12px 10px; border-radius: 12px; cursor: pointer; }
+.rows li:hover { background: var(--card); }
+.rows li.sel { background: var(--green-soft); }
+.rows .name { flex: 1; font-weight: 600; }
+.check { width: 20px; height: 20px; fill: none; stroke: var(--green); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- Настройки ---------- */
+.settings { padding: 4px 18px 16px; }
+.settings .stat { margin: 0 0 8px; color: var(--muted); }
+.settings .stat b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.btn { width: 100%; margin-top: 6px; padding: 11px; border-radius: 12px; font-weight: 600; background: var(--green); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+.hint { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
+.hint.err { color: var(--bad); }
+.warn { margin-top: 16px; padding: 10px 12px; background: var(--card); border-radius: 10px; color: var(--muted); font-size: 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .home.busy .power, .home.busy .power svg { animation: none; }
+}
+
+.upd { display: block; width: 100%; margin-top: 18px; padding: 10px 12px; border-radius: 12px; background: var(--green-soft); color: var(--green); font-weight: 600; text-align: left; text-decoration: none; }
+.upd:hover { filter: brightness(.97); }
