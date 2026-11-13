@@ -1,4 +1,4 @@
-importScripts("secrets.js", "config.js", "update.js");
+importScripts("secrets.js", "config.js", "update.js", "core.js");
 
 const tried = new Set();
 
@@ -16,13 +16,42 @@ chrome.webRequest.onAuthRequired.addListener(
   ["asyncBlocking"]
 );
 
-// Проверка новой версии: на иконке расширения появляется значок «1».
+// Проверка обновлений. Если уже один раз обновлялись и доступ к папке сохранён, обновляемся сами.
 async function checkAndBadge() {
   const d = await checkUpdate(true);
-  chrome.action.setBadgeBackgroundColor({ color: "#3f9d5b" });
-  chrome.action.setBadgeText({ text: d && d.newer ? "1" : "" });
+  const { connFail, updOk, autoTried } = await sget(["connFail", "updOk", "autoTried"]);
+  chrome.action.setBadgeBackgroundColor({ color: "#6d5bff" });
+  chrome.action.setBadgeText({ text: d && d.newer ? "1" : connFail ? "!" : "" });
+  if (d && d.newer && updOk && autoTried !== d.latest && (await settings()).autoUpdate) {
+    await sset({ autoTried: d.latest });
+    chrome.tabs.create({ url: chrome.runtime.getURL("updater.html?auto=1"), active: false });
+  }
 }
+
+// Каждые 5 минут проверяем, что прокси жив. Если нет, переключаемся на другой.
+async function watchdog() {
+  const { on } = await sget("on");
+  if (!on) return;
+  try {
+    await getIP(8000);
+    await sset({ connFail: false });
+  } catch {
+    try { await connectCore("AUTO"); } catch { await sset({ connFail: true }); chrome.action.setBadgeText({ text: "!" }); }
+  }
+}
+
 chrome.alarms.create("upd", { periodInMinutes: Math.max(1, UPDATE.minutes || 1) });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === "upd") checkAndBadge(); });
-chrome.runtime.onStartup.addListener(checkAndBadge);
+chrome.alarms.create("watch", { periodInMinutes: 5 });
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === "upd") checkAndBadge();
+  if (a.name === "watch") watchdog();
+});
+
 chrome.runtime.onInstalled.addListener(checkAndBadge);
+chrome.runtime.onStartup.addListener(async () => {
+  checkAndBadge();
+  const st = await settings();
+  if (st.autoStart) {
+    try { await connectCore(st.sel); } catch { await sset({ connFail: true }); }
+  }
+});

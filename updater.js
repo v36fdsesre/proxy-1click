@@ -90,6 +90,7 @@ async function writeFiles(dir, files) {
 
 /* ---------- основной ход ---------- */
 let info = null;
+const AUTO = new URLSearchParams(location.search).get("auto") === "1";
 
 async function run(forcePick) {
   $("#go").disabled = true;
@@ -102,11 +103,13 @@ async function run(forcePick) {
     if (!res.ok) throw new Error("Не удалось скачать архив (" + res.status + ").");
     say("Устанавливаю…");
     const n = await writeFiles(dir, await unzip(await res.arrayBuffer()));
+    await chrome.storage.local.set({ updOk: true });
     say("Готово: обновлено файлов " + n + ". Перезапускаю расширение…");
     setTimeout(() => chrome.runtime.reload(), 1200);
   } catch (e) {
     const text = e && e.name === "AbortError" ? "Выбор папки отменён." : (e && e.message) || "Не удалось обновить.";
     say(text, true);
+    if (AUTO) { chrome.action.setBadgeText({ text: "!" }); setTimeout(() => window.close(), 2500); }
     $("#go").disabled = false;
     $("#go").hidden = false;
     $("#pick").hidden = false;
@@ -130,6 +133,7 @@ async function run(forcePick) {
   try {
     const h = await getHandle();
     if (h && (await h.queryPermission({ mode: "readwrite" })) === "granted") run(false);
+    else if (AUTO) { chrome.action.setBadgeText({ text: "↑" }); window.close(); }
     else $("#hint").textContent = "В первый раз браузер попросит выбрать папку расширения и разрешить запись в неё.";
   } catch { /* ждём нажатия */ }
 })();
