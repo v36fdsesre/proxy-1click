@@ -1,0 +1,16 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Собрать архив расширения
+        run: zip -r proxy-extension.zip . -x ".git/*" ".github/*" "secrets.js" ".gitignore" "*.md" "*.txt"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: proxy-extension.zip
