@@ -5,9 +5,16 @@ const hdr = $("#hdr");
 const S = {
   tab: "home", sel: "AUTO", id: null, on: false, busy: false, ip: "", ms: 0, ping: {}, since: 0,
   stats: null, msg: "", err: false, upd: null, q: "", autoStart: true, autoUpdate: true,
+  unlocked: false, cmsg: "", cerr: false,
 };
-const AD = ADS.length ? ADS[Math.floor(Math.random() * ADS.length)] : null;
 const byId = (id) => PROXIES.find((p) => p.id === id);
+const canUse = (id) => S.unlocked || ACCESS.freeIds.includes(id);
+const allowed = () => PROXIES.filter((p) => canUse(p.id));
+const effSel = () => {
+  const a = allowed();
+  if (S.sel === "AUTO") return a.length > 1 ? "AUTO" : a[0].id;
+  return canUse(S.sel) ? S.sel : a[0].id;
+};
 const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
 
 const ICON = {
@@ -16,6 +23,7 @@ const ICON = {
   back: `<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>`,
   power: `<svg viewBox="0 0 24 24"><path d="M12 3v8M6.4 6.6a8 8 0 1 0 11.2 0"/></svg>`,
   rocket: `<svg viewBox="0 0 24 24"><path d="M12 3c3 2 5 5 5 9l-2 4H9l-2-4c0-4 2-7 5-9zM9 16l-2 4 3-1M15 16l2 4-3-1"/><circle cx="12" cy="10" r="1.6"/></svg>`,
+  lock: `<svg class="lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`,
 };
 
 const FLAGS = {
@@ -30,7 +38,6 @@ const FLAGS = {
        <circle cx="19" cy="11" r="6" fill="none" stroke="#fec50c" stroke-width="1.6" stroke-dasharray="1.4 1.6"/>
        <path d="M12 19c3 2.4 9 2.4 12 0-3 .8-9 .8-12 0z" fill="#fec50c"/><rect x="2" y="2" width="2.5" height="22" fill="#fec50c" opacity=".7"/>`,
 };
-
 function flag(id) {
   if (!id) return `<span class="flag-auto">${ICON.rocket}</span>`;
   return `<svg class="flag" viewBox="0 0 36 26" aria-hidden="true">${FLAGS[id] || FLAGS.NL}</svg>`;
@@ -114,64 +121,101 @@ const fmtTime = (ms) => {
 
 function selectionInfo() {
   if (S.on && S.id) {
-    return { id: S.id, name: byId(S.id).name, sub: S.sel === "AUTO" ? "Выбран автоматически" : "Общий сервер", ms: S.ping[S.id] };
+    return { id: S.id, name: byId(S.id).name, sub: S.sel === "AUTO" && S.unlocked ? "Выбран автоматически" : "Общий сервер", ms: S.ping[S.id] };
   }
-  if (S.sel === "AUTO") return { id: null, name: "Авто", sub: "Самый быстрый сервер", ms: 0 };
-  const p = byId(S.sel) || PROXIES[0];
+  const e = effSel();
+  if (e === "AUTO") return { id: null, name: "Авто", sub: "Самый быстрый сервер", ms: 0 };
+  const p = byId(e);
   return { id: p.id, name: p.name, sub: "Общий сервер", ms: S.ping[p.id] };
 }
 
-function render() {
-  if (S.tab === "list") {
-    header("Выбор сервера", "sub");
-    const q = S.q.trim().toLowerCase();
-    const items = PROXIES.filter((p) => !q || p.name.toLowerCase().includes(q));
-    const showAuto = !q || "авто".includes(q);
-    view.innerHTML = `
-      <input id="q" class="search" type="search" placeholder="Поиск страны" value="${esc(S.q)}">
-      ${showAuto ? `<div class="section">Рекомендуем</div><ul class="rows"><li data-id="AUTO" class="${S.sel === "AUTO" ? "sel" : ""}" tabindex="0">
-        ${flag(null)}<span class="name">Авто<small>Самый быстрый сервер, подбирается сам</small></span><span class="dot"></span></li></ul>` : ""}
-      <div class="section">Все серверы</div>
-      <ul class="rows">${items.map((p) => `<li data-id="${p.id}" class="${S.sel === p.id ? "sel" : ""}" tabindex="0">
-        ${flag(p.id)}<span class="name">${esc(p.name)}</span>${bars(S.ping[p.id])}<span class="ping">${pingTxt(S.ping[p.id])}</span><span class="dot"></span></li>`).join("")
-        || `<li style="justify-content:center;cursor:default">Ничего не найдено</li>`}</ul>`;
-    const q$ = $("#q");
-    q$.addEventListener("input", (e) => { S.q = e.target.value; render(); $("#q").focus(); $("#q").setSelectionRange(S.q.length, S.q.length); });
-    view.querySelectorAll("li[data-id]").forEach((li) => {
-      const go = async () => { S.sel = li.dataset.id; await sset({ sel: S.sel }); S.tab = "home"; S.q = ""; connect(); };
-      li.onclick = go;
-      li.onkeydown = (e) => { if (e.key === "Enter") go(); };
-    });
-    return;
-  }
+function renderList() {
+  header("Выбор сервера", "sub");
+  const q = S.q.trim().toLowerCase();
+  const items = PROXIES.filter((p) => !q || p.name.toLowerCase().includes(q));
+  const e = effSel();
+  const showAuto = S.unlocked && (!q || "авто".includes(q));
+  view.innerHTML = `
+    <input id="q" class="search" type="search" placeholder="Поиск страны" value="${esc(S.q)}">
+    ${showAuto ? `<div class="section">Рекомендуем</div><ul class="rows"><li data-id="AUTO" class="${e === "AUTO" ? "sel" : ""}" tabindex="0">
+      ${flag(null)}<span class="name">Авто<small>Самый быстрый сервер, подбирается сам</small></span><span class="dot"></span></li></ul>` : ""}
+    <div class="section">Все серверы</div>
+    <ul class="rows">${items.map((p) => canUse(p.id)
+      ? `<li data-id="${p.id}" class="${e === p.id ? "sel" : ""}" tabindex="0">${flag(p.id)}<span class="name">${esc(p.name)}</span>${bars(S.ping[p.id])}<span class="ping">${pingTxt(S.ping[p.id])}</span><span class="dot"></span></li>`
+      : `<li data-id="${p.id}" class="locked" tabindex="0">${flag(p.id)}<span class="name">${esc(p.name)}<small>Нужен код доступа</small></span>${ICON.lock}</li>`).join("")
+      || `<li style="justify-content:center;cursor:default">Ничего не найдено</li>`}</ul>`;
+  $("#q").addEventListener("input", (ev) => { S.q = ev.target.value; render(); const el = $("#q"); el.focus(); el.setSelectionRange(S.q.length, S.q.length); });
+  view.querySelectorAll("li[data-id]").forEach((li) => {
+    const go = async () => {
+      const id = li.dataset.id;
+      if (id !== "AUTO" && !canUse(id)) {
+        S.tab = "settings"; S.cmsg = `Введите код доступа, чтобы открыть сервер «${byId(id).name}».`; S.cerr = false; return render();
+      }
+      S.sel = id; await sset({ sel: id }); S.tab = "home"; S.q = ""; connect();
+    };
+    li.onclick = go;
+    li.onkeydown = (ev) => { if (ev.key === "Enter") go(); };
+  });
+}
 
-  if (S.tab === "settings") {
-    header("Настройки", "sub");
-    const opt = (id, title, text, on) => `<button class="opt" id="${id}" role="switch" aria-checked="${on}">
-      <span class="t"><b>${title}</b><span>${text}</span></span><span class="track"><span class="knob"></span></span></button>`;
-    view.innerHTML = `<div class="settings">
-      ${opt("o-start", "Включать при запуске браузера", "Прокси подключится сам", S.autoStart)}
-      ${opt("o-upd", "Обновляться автоматически", "Новые версии ставятся сами", S.autoUpdate)}
-      <p class="info">Версия: <b>${chrome.runtime.getManifest().version}</b><br>Сервер: <b>${S.id ? esc(byId(S.id).host + ":" + byId(S.id).port) : "не подключён"}</b></p>
-      <button class="btn" id="b-upd">Проверить обновления</button>
-      <p class="hint ${S.err ? "err" : ""}" role="status">${esc(S.msg || "Если прокси перестанет отвечать, расширение само переключится на другой сервер.")}</p>
-      <p class="warn">Не отправляйте папку расширения другим людям: в ней логины и пароли прокси.</p></div>`;
-    $("#o-start").onclick = async () => { S.autoStart = !S.autoStart; await sset({ autoStart: S.autoStart }); render(); };
-    $("#o-upd").onclick = async () => { S.autoUpdate = !S.autoUpdate; await sset({ autoUpdate: S.autoUpdate }); render(); };
-    $("#b-upd").onclick = async () => {
-      if (!UPDATE.repo) { S.err = true; S.msg = "Впишите репозиторий GitHub в файле config.js."; return render(); }
-      S.err = false; S.msg = "Проверяю обновления…"; render();
-      const d = await checkUpdate(true);
-      S.upd = d; S.err = !d;
-      S.msg = !d ? "Не удалось проверить обновления." : d.newer ? `Есть новая версия ${d.latest}. Откройте главный экран.` : "У вас последняя версия.";
+function renderSettings() {
+  header("Настройки", "sub");
+  const opt = (id, title, text, on) => `<button class="opt" id="${id}" role="switch" aria-checked="${on}">
+    <span class="t"><b>${title}</b><span>${text}</span></span><span class="track"><span class="knob"></span></span></button>`;
+  const code = S.unlocked
+    ? `<div class="codebox"><b>Код доступа</b><span class="d ok-text">Код принят, все серверы открыты.</span>
+         <div class="crow"><button class="btn small ghost" id="b-reset">Удалить код</button></div></div>`
+    : `<div class="codebox"><b>Код доступа</b><span class="d">Без кода работает только Канада. Введите код, чтобы открыть все серверы.</span>
+         <div class="crow"><input id="code" type="text" placeholder="XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false"><button class="btn small" id="b-code">Применить</button></div>
+         <p class="hint ${S.cerr ? "err" : ""}" role="status">${esc(S.cmsg)}</p></div>`;
+  view.innerHTML = `<div class="settings">
+    ${code}
+    ${opt("o-start", "Включать при запуске браузера", "Прокси подключится сам", S.autoStart)}
+    ${opt("o-upd", "Обновляться автоматически", "Новые версии ставятся сами", S.autoUpdate)}
+    <p class="info">Версия: <b>${chrome.runtime.getManifest().version}</b><br>Сервер: <b>${S.id ? esc(byId(S.id).host + ":" + byId(S.id).port) : "не подключён"}</b></p>
+    <button class="btn" id="b-upd">Проверить обновления</button>
+    <p class="hint ${S.err ? "err" : ""}" role="status">${esc(S.msg || "Если прокси перестанет отвечать, расширение само переключится на другой сервер.")}</p>
+    <p class="warn">Не отправляйте папку расширения другим людям: в ней логины и пароли прокси.</p></div>`;
+
+  const apply = async () => {
+    const v = normCode($("#code").value);
+    if (!v) return;
+    const h = await sha(v);
+    if (ACCESS.codeHashes.includes(h)) {
+      await sset({ codeHash: h });
+      S.unlocked = true; S.cerr = false; S.cmsg = "";
+    } else {
+      S.cerr = true; S.cmsg = "Неверный код.";
+    }
+    render();
+  };
+  if ($("#b-code")) {
+    $("#b-code").onclick = apply;
+    $("#code").addEventListener("keydown", (ev) => { if (ev.key === "Enter") apply(); });
+  }
+  if ($("#b-reset")) {
+    $("#b-reset").onclick = async () => {
+      await sset({ codeHash: null });
+      S.unlocked = false; S.cmsg = "";
+      if (S.on && S.id && !canUse(S.id)) await disconnect();
       render();
     };
-    return;
   }
+  $("#o-start").onclick = async () => { S.autoStart = !S.autoStart; await sset({ autoStart: S.autoStart }); render(); };
+  $("#o-upd").onclick = async () => { S.autoUpdate = !S.autoUpdate; await sset({ autoUpdate: S.autoUpdate }); render(); };
+  $("#b-upd").onclick = async () => {
+    if (!UPDATE.repo) { S.err = true; S.msg = "Впишите репозиторий GitHub в файле config.js."; return render(); }
+    S.err = false; S.msg = "Проверяю обновления…"; render();
+    const d = await checkUpdate(true);
+    S.upd = d; S.err = !d;
+    S.msg = !d ? "Не удалось проверить обновления." : d.newer ? `Есть новая версия ${d.latest}. Откройте главный экран.` : "У вас последняя версия.";
+    render();
+  };
+}
 
+function renderHome() {
   header("Космопрокси", "home");
   const info = selectionInfo();
-  const stateCls = S.on ? "on" : "";
   const pill = S.busy
     ? `<span class="pill wait"><i></i>Подключение…</span>`
     : S.on
@@ -185,12 +229,8 @@ function render() {
          <div class="stat"><b>${S.stats && S.stats.loading ? "…" : mbps(S.stats && S.stats.up)}</b><span>Мбит/с вверх</span></div>
          <div class="stat"><b>${S.ms || "—"}</b><span>Пинг, мс</span></div></div>
        <div class="timer" id="timer">${fmtTime(Date.now() - S.since)}</div>`
-    : AD
-      ? (AD.url
-          ? `<a class="promo" href="${esc(AD.url)}" target="_blank" rel="noopener sponsored">`
-          : `<div class="promo">`) + `<span class="tag">Реклама</span><b>${esc(AD.title)}</b><span>${esc(AD.text || "")}</span>` + (AD.url ? `</a>` : `</div>`)
-      : "";
-  view.innerHTML = `<div class="home ${stateCls} ${S.busy ? "busy" : ""}">
+    : "";
+  view.innerHTML = `<div class="home ${S.on ? "on" : ""} ${S.busy ? "busy" : ""}">
     ${updBanner}${top}${pill}
     <p class="sub ${S.err ? "err" : ""}" role="status">${esc(S.msg || (S.on ? `Ваш IP: ${S.ip}` : ""))}</p>
     <div class="rings"><i class="r1"></i><i class="r2"></i><i class="r3"></i>
@@ -199,6 +239,12 @@ function render() {
   </div>`;
   $("#power").onclick = () => (S.busy ? null : S.on ? disconnect() : connect());
   $("#loc").onclick = () => { S.tab = "list"; render(); };
+}
+
+function render() {
+  if (S.tab === "list") return renderList();
+  if (S.tab === "settings") return renderSettings();
+  renderHome();
 }
 
 setInterval(() => {
@@ -212,6 +258,7 @@ setInterval(() => {
   S.ping = st.ping || {};
   S.autoStart = st.autoStart !== false;
   S.autoUpdate = st.autoUpdate !== false;
+  S.unlocked = await unlocked();
   render();
   checkUpdate(false).then((d) => { S.upd = d; if (S.tab === "home") render(); });
 
@@ -219,6 +266,7 @@ setInterval(() => {
   const active = v && v.mode === "fixed_servers" && v.rules && v.rules.singleProxy
     ? PROXIES.find((p) => p.host === v.rules.singleProxy.host) : null;
   if (active) {
+    if (!canUse(active.id)) { await disconnect(); return; } // код сняли, а прокси остался: отключаем
     S.on = true; S.id = active.id; S.since = st.since || Date.now(); S.stats = st.stats || null;
     render();
     try {

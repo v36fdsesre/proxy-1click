@@ -2,8 +2,22 @@
 const BYPASS = ["localhost", "127.0.0.1", "<local>", "api.github.com", "github.com", "*.github.com", "*.githubusercontent.com"];
 const DEFAULTS = { autoStart: true, autoUpdate: true, sel: "AUTO" };
 
+const normCode = (s) => String(s).trim().toUpperCase().replace(/\s+/g, "");
+async function sha(text) {
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("kosmoproxy:" + text));
+  return [...new Uint8Array(h)].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
 const sget = (k) => new Promise((r) => chrome.storage.local.get(k, r));
 const sset = (o) => new Promise((r) => chrome.storage.local.set(o, r));
+async function unlocked() {
+  const { codeHash } = await sget("codeHash");
+  return !!codeHash && ACCESS.codeHashes.includes(codeHash);
+}
+async function allowedProxies() {
+  const all = await unlocked();
+  return PROXIES.filter((p) => all || ACCESS.freeIds.includes(p.id));
+}
 async function settings() {
   return { ...DEFAULTS, ...(await sget(["autoStart", "autoUpdate", "sel"])) };
 }
@@ -37,9 +51,10 @@ async function getIP(ms) {
 
 // Подключение. sel: "AUTO" (самый быстрый) или код страны. Если выбранный сервер не отвечает, берём следующий.
 async function connectCore(sel) {
+  const list = await allowedProxies();
   const ping = (await sget("ping")).ping || {};
   if (sel === "AUTO") {
-    for (const p of PROXIES) {
+    for (const p of list) {
       if (ping[p.id] != null) continue;
       await applyProxy(p);
       const t0 = performance.now();
@@ -47,10 +62,10 @@ async function connectCore(sel) {
     }
   }
   let order;
-  if (sel === "AUTO") order = [...PROXIES].sort((a, b) => (ping[a.id] ?? 1e9) - (ping[b.id] ?? 1e9));
+  if (sel === "AUTO") order = [...list].sort((a, b) => (ping[a.id] ?? 1e9) - (ping[b.id] ?? 1e9));
   else {
-    const first = PROXIES.find((p) => p.id === sel) || PROXIES[0];
-    order = [first, ...PROXIES.filter((p) => p !== first)];
+    const first = list.find((p) => p.id === sel) || list[0];
+    order = [first, ...list.filter((p) => p !== first)];
   }
   for (const p of order) {
     await applyProxy(p);

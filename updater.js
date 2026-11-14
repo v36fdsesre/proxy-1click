@@ -133,7 +133,14 @@ async function run(forcePick) {
   try {
     const h = await getHandle();
     if (h && (await h.queryPermission({ mode: "readwrite" })) === "granted") run(false);
-    else if (AUTO) { chrome.action.setBadgeText({ text: "↑" }); window.close(); }
+    else if (AUTO) {
+      // Браузер просит подтвердить доступ к папке: выводим эту вкладку вперёд, нужно одно нажатие.
+      chrome.action.setBadgeText({ text: "↑" });
+      say("Доступна версия " + info.latest + ". Нажмите «Обновить сейчас» один раз.");
+      chrome.tabs.getCurrent((t) => {
+        if (t) { chrome.tabs.update(t.id, { active: true }); chrome.windows.update(t.windowId, { focused: true }); }
+      });
+    }
     else $("#hint").textContent = "В первый раз браузер попросит выбрать папку расширения и разрешить запись в неё.";
   } catch { /* ждём нажатия */ }
 })();

@@ -47,7 +47,15 @@ chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "watch") watchdog();
 });
 
-chrome.runtime.onInstalled.addListener(checkAndBadge);
+chrome.runtime.onInstalled.addListener(async (d) => {
+  await checkAndBadge();
+  if (d.reason === "update") {
+    // Расширение только что обновилось: отмечаем это значком и открываем окно с новой версией.
+    chrome.action.setBadgeBackgroundColor({ color: "#38d39f" });
+    chrome.action.setBadgeText({ text: "✓" });
+    try { await chrome.action.openPopup(); } catch { /* нет открытого окна браузера */ }
+  }
+});
 chrome.runtime.onStartup.addListener(async () => {
   checkAndBadge();
   const st = await settings();

@@ -129,3 +129,17 @@ li.sel .dot { border-color: var(--accent2); background: radial-gradient(circle, 
   .busy .rings i, .pill.wait i { animation: none; }
   .track, .knob { transition: none; }
 }
+
+/* ---------- Код доступа ---------- */
+.codebox { padding: 14px; border-radius: 14px; background: var(--card); margin-bottom: 8px; }
+.codebox b { display: block; }
+.codebox .d { font-size: 12px; color: var(--muted); }
+.ok-text { color: var(--ok) !important; }
+.crow { display: flex; gap: 8px; margin-top: 10px; }
+.crow input { flex: 1; min-width: 0; padding: 10px 12px; border: 0; border-radius: 10px; background: var(--bg2); color: #fff; font: inherit; text-transform: uppercase; letter-spacing: .04em; }
+.crow input::placeholder { color: var(--muted); }
+.btn.small { width: auto; padding: 10px 14px; border-radius: 10px; }
+.btn.ghost { background: var(--card2); }
+.rows li.locked { opacity: .6; }
+.rows li.locked:hover { opacity: .85; }
+.lock { width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
