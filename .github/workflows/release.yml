@@ -2,6 +2,7 @@ name: release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -15,17 +16,25 @@ jobs:
       - name: Прочитать версию из manifest.json
         id: v
         run: echo "version=$(jq -r .version manifest.json)" >> "$GITHUB_OUTPUT"
-      - name: Проверить, есть ли уже такой релиз
+      - name: Проверить релиз
         id: ex
         run: |
-          if gh release view "v${{ steps.v.outputs.version }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+          tag="v${{ steps.v.outputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if gh release view "$tag" --json assets --jq '.assets[].name' | grep -qx 'proxy-extension.zip'; then
+              echo "state=done" >> "$GITHUB_OUTPUT"
+            else
+              echo "state=noasset" >> "$GITHUB_OUTPUT"
+            fi
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "state=new" >> "$GITHUB_OUTPUT"
           fi
       - name: Собрать архив расширения
-        if: steps.ex.outputs.exists == 'false'
+        if: steps.ex.outputs.state != 'done'
         run: zip -r proxy-extension.zip . -x ".git/*" ".github/*" "secrets.js" ".gitignore" "*.md" "*.txt"
       - name: Создать релиз
-        if: steps.ex.outputs.exists == 'false'
+        if: steps.ex.outputs.state == 'new'
         run: gh release create "v${{ steps.v.outputs.version }}" proxy-extension.zip --title "${{ steps.v.outputs.version }}" --notes "Версия ${{ steps.v.outputs.version }}" --target "${{ github.sha }}" --latest
+      - name: Приложить архив к существующему релизу
+        if: steps.ex.outputs.state == 'noasset'
+        run: gh release upload "v${{ steps.v.outputs.version }}" proxy-extension.zip --clobber
