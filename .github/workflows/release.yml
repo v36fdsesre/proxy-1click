@@ -1,16 +1,31 @@
 name: release
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 permissions:
   contents: write
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
+      - name: Прочитать версию из manifest.json
+        id: v
+        run: echo "version=$(jq -r .version manifest.json)" >> "$GITHUB_OUTPUT"
+      - name: Проверить, есть ли уже такой релиз
+        id: ex
+        run: |
+          if gh release view "v${{ steps.v.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Собрать архив расширения
+        if: steps.ex.outputs.exists == 'false'
         run: zip -r proxy-extension.zip . -x ".git/*" ".github/*" "secrets.js" ".gitignore" "*.md" "*.txt"
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: proxy-extension.zip
+      - name: Создать релиз
+        if: steps.ex.outputs.exists == 'false'
+        run: gh release create "v${{ steps.v.outputs.version }}" proxy-extension.zip --title "${{ steps.v.outputs.version }}" --notes "Версия ${{ steps.v.outputs.version }}" --target "${{ github.sha }}" --latest
