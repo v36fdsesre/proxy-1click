@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Космопрокси",
-  "version": "2.9.4",
+  "version": "2.9.5",
   "description": "Прокси в один клик. Без кода работает Канада, с кодом все серверы.",
   "permissions": [
     "proxy",
