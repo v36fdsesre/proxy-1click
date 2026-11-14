@@ -60,8 +60,9 @@ const SKIP = [/^secrets(\.|$)/, /^\.git/, /\.(md|txt)$/i]; // свои прок�
 const ESSENTIAL = /^(manifest\.json|[a-z]+\.(js|html|css)|icons\/[A-Za-z0-9._-]+)$/i;
 const NAME_OK = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
 const cleanName = (n) => n.replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^(\.\/)+/, "").replace(/^\/+/, "");
+const errText = (e) => (e && e.message) || String(e);
 
-async function writeFiles(dir, all) {
+function prepareFiles(all) {
   let files = all.map((f) => ({ ...f, name: cleanName(f.name) }));
   // Если весь архив лежит в одной общей папке, убираем её.
   const top = files.length ? files[0].name.split("/")[0] : "";
@@ -77,21 +78,51 @@ async function writeFiles(dir, all) {
     })
     .sort((a, b) => (a.name === "manifest.json") - (b.name === "manifest.json")); // manifest.json последним
   if (!list.some((f) => f.name === "manifest.json")) throw new Error("В архиве нет manifest.json.");
+  return { list, skipped };
+}
+
+async function openFile(dir, name) {
+  const parts = name.split("/");
+  let d = dir;
+  for (const part of parts.slice(0, -1)) d = await d.getDirectoryHandle(part, { create: true });
+  return d.getFileHandle(parts[parts.length - 1], { create: true });
+}
+
+// Перед записью проверяем, что браузер вообще пускает в папку и принимает все имена. Если нет, ничего не трогаем.
+async function probeWrite(dir, list) {
+  try {
+    const fh = await dir.getFileHandle("zz-write-test.tmp", { create: true });
+    const w = await fh.createWritable();
+    await w.write("ok");
+    await w.close();
+    await dir.removeEntry("zz-write-test.tmp");
+  } catch (e) {
+    throw new Error("Браузер не разрешает записывать файлы в эту папку (" + errText(e) + "). Ничего не записано. Скачайте архив вручную и распакуйте его поверх папки.");
+  }
+  const bad = [];
   for (const f of list) {
+    try { await openFile(dir, f.name); } catch { bad.push(f.name); }
+  }
+  const must = bad.filter((n) => ESSENTIAL.test(n));
+  if (must.length) throw new Error("Браузер не принимает имена файлов: " + must.join(", ") + ". Ничего не записано, файлы не тронуты.");
+  return bad;
+}
+
+async function writeFiles(dir, all) {
+  const { list, skipped } = prepareFiles(all);
+  const bad = await probeWrite(dir, list);
+  const todo = list.filter((f) => !bad.includes(f.name));
+  for (const f of todo) {
     try {
-      const parts = f.name.split("/");
-      let d = dir;
-      for (const part of parts.slice(0, -1)) d = await d.getDirectoryHandle(part, { create: true });
-      const fh = await d.getFileHandle(parts[parts.length - 1], { create: true });
+      const fh = await openFile(dir, f.name);
       const w = await fh.createWritable();
       await w.write(f.data);
       await w.close();
     } catch (e) {
-      if (!ESSENTIAL.test(f.name)) { skipped.push(f.name); continue; }
-      throw new Error("Не удалось записать файл «" + f.name + "»: " + ((e && e.message) || e));
+      throw new Error("Не удалось записать файл «" + f.name + "»: " + errText(e));
     }
   }
-  return { count: list.length - skipped.filter((n) => list.some((f) => f.name === n)).length, skipped };
+  return { count: todo.length, skipped: skipped.concat(bad) };
 }
 
 /* ---------- скачать архив релиза и записать файлы ---------- */
@@ -99,13 +130,21 @@ async function readManifest(dir) {
   return JSON.parse(await (await (await dir.getFileHandle("manifest.json")).getFile()).text());
 }
 
+// Страница обновления и фоновая часть не должны ставить обновление одновременно.
 async function installRelease(dir, url) {
-  const mf = await readManifest(dir);
-  if (mf.name !== chrome.runtime.getManifest().name) throw new Error("В выбранной папке нет расширения «" + chrome.runtime.getManifest().name + "».");
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("Не удалось скачать архив (" + res.status + ").");
-  const buf = await res.arrayBuffer();
-  const h = new Uint8Array(buf.slice(0, 4));
-  if (!(h[0] === 0x50 && h[1] === 0x4b)) throw new Error("По ссылке лежит не архив: релиз ещё собирается. Повторите через минуту.");
-  return writeFiles(dir, await unzip(buf));
+  const { updLock } = await chrome.storage.local.get("updLock");
+  if (updLock && Date.now() - updLock < 90000) throw new Error("Обновление уже идёт в фоне. Подождите минуту и откройте окно расширения снова.");
+  await chrome.storage.local.set({ updLock: Date.now() });
+  try {
+    const mf = await readManifest(dir);
+    if (mf.name !== chrome.runtime.getManifest().name) throw new Error("В выбранной папке нет расширения «" + chrome.runtime.getManifest().name + "».");
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("Не удалось скачать архив (" + res.status + ").");
+    const buf = await res.arrayBuffer();
+    const h = new Uint8Array(buf.slice(0, 4));
+    if (!(h[0] === 0x50 && h[1] === 0x4b)) throw new Error("По ссылке лежит не архив: релиз ещё собирается. Повторите через минуту.");
+    return await writeFiles(dir, await unzip(buf));
+  } finally {
+    await chrome.storage.local.set({ updLock: 0 });
+  }
 }
