@@ -171,7 +171,7 @@ function renderSettings() {
   view.innerHTML = `<div class="settings">
     ${code}
     ${opt("o-start", "Включать при запуске браузера", "Прокси подключится сам", S.autoStart)}
-    ${opt("o-upd", "Обновляться автоматически", "Новые версии ставятся сами", S.autoUpdate)}
+    ${opt("o-upd", "Обновляться автоматически", "Перезапуск после обновления файлов", S.autoUpdate)}
     <p class="info">Версия: <b>${chrome.runtime.getManifest().version}</b><br>Сервер: <b>${S.id ? esc(byId(S.id).host + ":" + byId(S.id).port) : "не подключён"}</b></p>
     <button class="btn" id="b-upd">Проверить обновления</button>
     <p class="hint ${S.err ? "err" : ""}" role="status">${esc(S.msg || "Если прокси перестанет отвечать, расширение само переключится на другой сервер.")}</p>
@@ -222,7 +222,7 @@ function renderHome() {
       ? `<span class="pill ok"><i></i>Подключено</span>`
       : `<span class="pill"><i></i>Не подключено</span>`;
   const updBanner = S.upd && S.upd.newer
-    ? `<a class="upd" href="updater.html" target="_blank">Доступна версия ${esc(S.upd.latest)}. Обновить</a>` : "";
+    ? `<a class="upd" href="updater.html" target="_blank">Доступна версия ${esc(S.upd.latest)}. Подробнее</a>` : "";
   const top = S.on
     ? `<div class="stats">
          <div class="stat"><b>${S.stats && S.stats.loading ? "…" : mbps(S.stats && S.stats.down)}</b><span>Мбит/с вниз</span></div>

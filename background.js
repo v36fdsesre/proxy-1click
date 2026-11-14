@@ -1,4 +1,4 @@
-importScripts("secrets.js", "config.js", "update.js", "core.js", "installer.js");
+importScripts("secrets.js", "config.js", "update.js", "core.js");
 
 const tried = new Set();
 
@@ -16,31 +16,23 @@ chrome.webRequest.onAuthRequired.addListener(
   ["asyncBlocking"]
 );
 
-// Установка обновления без окон: если браузер помнит доступ к папке, всё делаем в фоне и перезапускаемся.
-async function silentInstall(d) {
-  const h = await getHandle();
-  if (!h) return "nohandle";
-  if ((await h.queryPermission({ mode: "readwrite" })) !== "granted") return "noperm";
-  await installRelease(h, d.url);
-  await sset({ updOk: true });
-  chrome.runtime.reload();
-  return "done";
+// Файлы в папке расширения обновляет помощник Windows (если он установлен). Здесь замечаем, что версия
+// в manifest.json на диске новее запущенной, и перезапускаем расширение.
+async function reloadIfUpdatedOnDisk() {
+  if (!(await settings()).autoUpdate) return;
+  try {
+    const r = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" });
+    const m = await r.json();
+    if (m.version && m.version !== chrome.runtime.getManifest().version) chrome.runtime.reload();
+  } catch { /* файл как раз копируется, проверим в следующий раз */ }
 }
 
-// Проверка обновлений. Новая версия ставится сама; окно открывается, только если нужно одно нажатие.
+// Проверка новой версии на GitHub: на иконке появляется значок «1».
 async function checkAndBadge() {
   const d = await checkUpdate(true);
-  const { connFail, autoTried } = await sget(["connFail", "autoTried"]);
+  const { connFail } = await sget("connFail");
   chrome.action.setBadgeBackgroundColor({ color: "#6d5bff" });
   chrome.action.setBadgeText({ text: d && d.newer ? "1" : connFail ? "!" : "" });
-  if (d && d.newer && autoTried !== d.latest && (await settings()).autoUpdate) {
-    await sset({ autoTried: d.latest });
-    let state = "error";
-    try { state = await silentInstall(d); } catch (e) { await sset({ lastUpdError: String((e && e.message) || e) }); }
-    if (state === "noperm" || state === "error") {
-      chrome.tabs.create({ url: chrome.runtime.getURL("updater.html?auto=1"), active: false });
-    }
-  }
 }
 
 // Каждые 5 минут проверяем, что прокси жив. Если нет, переключаемся на другой.
@@ -58,7 +50,7 @@ async function watchdog() {
 chrome.alarms.create("upd", { periodInMinutes: Math.max(1, UPDATE.minutes || 1) });
 chrome.alarms.create("watch", { periodInMinutes: 5 });
 chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === "upd") checkAndBadge();
+  if (a.name === "upd") reloadIfUpdatedOnDisk().then(checkAndBadge);
   if (a.name === "watch") watchdog();
 });
 
@@ -72,7 +64,7 @@ chrome.runtime.onInstalled.addListener(async (d) => {
   }
 });
 chrome.runtime.onStartup.addListener(async () => {
-  checkAndBadge();
+  reloadIfUpdatedOnDisk().then(checkAndBadge);
   const st = await settings();
   if (st.autoStart) {
     try { await connectCore(st.sel); } catch { await sset({ connFail: true }); }
