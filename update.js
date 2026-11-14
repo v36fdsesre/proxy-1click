@@ -8,8 +8,11 @@ function cmpVersions(a, b) {
   return 0;
 }
 
+// newer: есть новая версия И к релизу уже приложен архив. pending: версия вышла, а архива ещё нет.
 function withNewer(d) {
-  return { ...d, newer: cmpVersions(d.latest, chrome.runtime.getManifest().version) > 0 };
+  const higher = cmpVersions(d.latest, chrome.runtime.getManifest().version) > 0;
+  const ready = /\.zip(\?|$)/i.test(d.url || "");
+  return { ...d, newer: higher && ready, pending: higher && !ready };
 }
 
 async function checkUpdate(force) {
@@ -31,7 +34,8 @@ async function checkUpdate(force) {
     const asset = (j.assets || []).find((a) => /\.zip$/i.test(a.name));
     const data = {
       latest: String(j.tag_name || "").replace(/^v/i, ""),
-      url: asset ? asset.browser_download_url : j.html_url,
+      url: asset ? asset.browser_download_url : "",
+      page: j.html_url,
     };
     await chrome.storage.local.set({ upd: { t: now, etag: r.headers.get("ETag"), data } });
     return withNewer(data);

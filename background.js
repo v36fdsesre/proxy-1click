@@ -1,4 +1,4 @@
-importScripts("secrets.js", "config.js", "update.js", "core.js");
+importScripts("secrets.js", "config.js", "update.js", "core.js", "installer.js");
 
 const tried = new Set();
 
@@ -16,15 +16,30 @@ chrome.webRequest.onAuthRequired.addListener(
   ["asyncBlocking"]
 );
 
-// Проверка обновлений. Если уже один раз обновлялись и доступ к папке сохранён, обновляемся сами.
+// Установка обновления без окон: если браузер помнит доступ к папке, всё делаем в фоне и перезапускаемся.
+async function silentInstall(d) {
+  const h = await getHandle();
+  if (!h) return "nohandle";
+  if ((await h.queryPermission({ mode: "readwrite" })) !== "granted") return "noperm";
+  await installRelease(h, d.url);
+  await sset({ updOk: true });
+  chrome.runtime.reload();
+  return "done";
+}
+
+// Проверка обновлений. Новая версия ставится сама; окно открывается, только если нужно одно нажатие.
 async function checkAndBadge() {
   const d = await checkUpdate(true);
-  const { connFail, updOk, autoTried } = await sget(["connFail", "updOk", "autoTried"]);
+  const { connFail, autoTried } = await sget(["connFail", "autoTried"]);
   chrome.action.setBadgeBackgroundColor({ color: "#6d5bff" });
   chrome.action.setBadgeText({ text: d && d.newer ? "1" : connFail ? "!" : "" });
-  if (d && d.newer && updOk && autoTried !== d.latest && (await settings()).autoUpdate) {
+  if (d && d.newer && autoTried !== d.latest && (await settings()).autoUpdate) {
     await sset({ autoTried: d.latest });
-    chrome.tabs.create({ url: chrome.runtime.getURL("updater.html?auto=1"), active: false });
+    let state = "error";
+    try { state = await silentInstall(d); } catch (e) { await sset({ lastUpdError: String((e && e.message) || e) }); }
+    if (state === "noperm" || state === "error") {
+      chrome.tabs.create({ url: chrome.runtime.getURL("updater.html?auto=1"), active: false });
+    }
   }
 }
 
