@@ -71,21 +71,39 @@ async function unzip(buf) {
 
 /* ---------- запись файлов в папку расширения ---------- */
 const SKIP = [/^secrets\.js$/, /^\.git/, /\.(md|txt)$/i]; // свои прокси и служебные файлы не трогаем
-async function writeFiles(dir, files) {
+const NAME_OK = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
+const cleanName = (n) => n.replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^(\.\/)+/, "").replace(/^\/+/, "");
+
+async function writeFiles(dir, all) {
+  let files = all.map((f) => ({ ...f, name: cleanName(f.name) }));
+  // Если весь архив лежит в одной общей папке, убираем её.
+  const top = files.length ? files[0].name.split("/")[0] : "";
+  if (top && files.every((f) => f.name.startsWith(top + "/")) && !files.some((f) => f.name === "manifest.json")) {
+    files = files.map((f) => ({ ...f, name: f.name.slice(top.length + 1) }));
+  }
+  const skipped = [];
   const list = files
-    .filter((f) => !SKIP.some((r) => r.test(f.name)) && !f.name.includes("..") && !f.name.startsWith("/"))
+    .filter((f) => {
+      if (SKIP.some((r) => r.test(f.name)) || f.name.includes("..")) return false;
+      if (!NAME_OK.test(f.name)) { skipped.push(f.name); return false; } // странные имена не пишем
+      return true;
+    })
     .sort((a, b) => (a.name === "manifest.json") - (b.name === "manifest.json")); // manifest.json последним
   if (!list.some((f) => f.name === "manifest.json")) throw new Error("В архиве нет manifest.json.");
   for (const f of list) {
-    const parts = f.name.split("/");
-    let d = dir;
-    for (const part of parts.slice(0, -1)) d = await d.getDirectoryHandle(part, { create: true });
-    const fh = await d.getFileHandle(parts[parts.length - 1], { create: true });
-    const w = await fh.createWritable();
-    await w.write(f.data);
-    await w.close();
+    try {
+      const parts = f.name.split("/");
+      let d = dir;
+      for (const part of parts.slice(0, -1)) d = await d.getDirectoryHandle(part, { create: true });
+      const fh = await d.getFileHandle(parts[parts.length - 1], { create: true });
+      const w = await fh.createWritable();
+      await w.write(f.data);
+      await w.close();
+    } catch (e) {
+      throw new Error("Не удалось записать файл «" + f.name + "»: " + ((e && e.message) || e));
+    }
   }
-  return list.length;
+  return { count: list.length, skipped };
 }
 
 /* ---------- основной ход ---------- */
@@ -102,9 +120,9 @@ async function run(forcePick) {
     const res = await fetch(info.url, { cache: "no-store" });
     if (!res.ok) throw new Error("Не удалось скачать архив (" + res.status + ").");
     say("Устанавливаю…");
-    const n = await writeFiles(dir, await unzip(await res.arrayBuffer()));
+    const r = await writeFiles(dir, await unzip(await res.arrayBuffer()));
     await chrome.storage.local.set({ updOk: true });
-    say("Готово: обновлено файлов " + n + ". Перезапускаю расширение…");
+    say("Готово: обновлено файлов " + r.count + (r.skipped.length ? " (пропущено: " + r.skipped.join(", ") + ")" : "") + ". Перезапускаю расширение…");
     setTimeout(() => chrome.runtime.reload(), 1200);
   } catch (e) {
     const text = e && e.name === "AbortError" ? "Выбор папки отменён." : (e && e.message) || "Не удалось обновить.";
