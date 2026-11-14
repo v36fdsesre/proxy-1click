@@ -20,8 +20,8 @@ async function run(forcePick) {
   $("#go").disabled = true;
   try {
     const dir = await chooseFolder(forcePick);
-    say("Скачиваю версию " + info.latest + "…");
-    const r = await installRelease(dir, info.url);
+    say("Устанавливаю версию " + info.latest + "…");
+    const r = await installRelease(dir, info.url, (t) => say(t));
     await chrome.storage.local.set({ updOk: true });
     say("Готово: обновлено файлов " + r.count + (r.skipped.length ? " (пропущено: " + r.skipped.join(", ") + ")" : "") + ". Перезапускаю расширение…");
     setTimeout(() => chrome.runtime.reload(), 1200);

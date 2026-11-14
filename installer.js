@@ -60,6 +60,8 @@ const SKIP = [/^secrets(\.|$)/, /^\.git/, /\.(md|txt)$/i]; // свои прок�
 const ESSENTIAL = /^(manifest\.json|[a-z]+\.(js|html|css)|icons\/[A-Za-z0-9._-]+)$/i;
 const NAME_OK = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
 const cleanName = (n) => n.replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^(\.\/)+/, "").replace(/^\/+/, "");
+const withTimeout = (p, ms, msg) =>
+  Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
 const errText = (e) => (e && e.message) || String(e);
 
 function prepareFiles(all) {
@@ -81,11 +83,20 @@ function prepareFiles(all) {
   return { list, skipped };
 }
 
+// Существующий файл открываем без create: браузер запрещает «создавать» файлы *.js, а перезаписывать разрешает.
+async function getOrCreate(d, name) {
+  try {
+    return { fh: await d.getFileHandle(name), existed: true };
+  } catch (e) {
+    if (e && e.name === "NotFoundError") return { fh: await d.getFileHandle(name, { create: true }), existed: false };
+    throw e;
+  }
+}
 async function openFile(dir, name) {
   const parts = name.split("/");
   let d = dir;
   for (const part of parts.slice(0, -1)) d = await d.getDirectoryHandle(part, { create: true });
-  return d.getFileHandle(parts[parts.length - 1], { create: true });
+  return getOrCreate(d, parts[parts.length - 1]);
 }
 
 // Перед записью проверяем, что браузер вообще пускает в папку и принимает все имена. Если нет, ничего не трогаем.
@@ -100,24 +111,43 @@ async function probeWrite(dir, list) {
     throw new Error("Браузер не разрешает записывать файлы в эту папку (" + errText(e) + "). Ничего не записано. Скачайте архив вручную и распакуйте его поверх папки.");
   }
   const bad = [];
+  const reasons = {};
   for (const f of list) {
-    try { await openFile(dir, f.name); } catch { bad.push(f.name); }
+    try {
+      const { fh, existed } = await openFile(dir, f.name);
+      if (existed && /\.js$/i.test(f.name)) {
+        // Пробная перезапись тем же содержимым: так видно заранее, что браузер разрешит записать этот файл.
+        const same = await (await fh.getFile()).arrayBuffer();
+        const w = await fh.createWritable();
+        await w.write(same);
+        await w.close();
+      }
+    } catch (e) { bad.push(f.name); reasons[f.name] = errText(e); }
   }
   const must = bad.filter((n) => ESSENTIAL.test(n));
-  if (must.length) throw new Error("Браузер не принимает имена файлов: " + must.join(", ") + ". Ничего не записано, файлы не тронуты.");
+  if (must.length) {
+    throw new Error("Браузер не разрешает записать файлы: " + must.join(", ") + " (" + reasons[must[0]] + "). Ничего не записано, файлы не тронуты. " +
+      "Если это новые файлы .js, браузер не даёт создавать их сам: поставьте эту версию вручную из архива.");
+  }
   return bad;
 }
 
-async function writeFiles(dir, all) {
+async function writeFiles(dir, all, onStep = () => {}) {
   const { list, skipped } = prepareFiles(all);
-  const bad = await probeWrite(dir, list);
+  onStep("Проверяю доступ к папке… Если браузер спросит про изменения в папке, разрешите их.");
+  const bad = await withTimeout(probeWrite(dir, list), 25000,
+    "Браузер не отвечает при проверке записи. Посмотрите, не показал ли он окно с вопросом о доступе к папке, разрешите изменения и повторите.");
   const todo = list.filter((f) => !bad.includes(f.name));
-  for (const f of todo) {
+  for (let i = 0; i < todo.length; i++) {
+    const f = todo[i];
+    onStep("Записываю файлы: " + (i + 1) + " из " + todo.length + "…");
     try {
-      const fh = await openFile(dir, f.name);
-      const w = await fh.createWritable();
-      await w.write(f.data);
-      await w.close();
+      await withTimeout((async () => {
+        const { fh } = await openFile(dir, f.name);
+        const w = await fh.createWritable();
+        await w.write(f.data);
+        await w.close();
+      })(), 20000, "запись зависла");
     } catch (e) {
       throw new Error("Не удалось записать файл «" + f.name + "»: " + errText(e));
     }
@@ -131,19 +161,30 @@ async function readManifest(dir) {
 }
 
 // Страница обновления и фоновая часть не должны ставить обновление одновременно.
-async function installRelease(dir, url) {
+async function installRelease(dir, url, onStep = () => {}) {
   const { updLock } = await chrome.storage.local.get("updLock");
   if (updLock && Date.now() - updLock < 90000) throw new Error("Обновление уже идёт в фоне. Подождите минуту и откройте окно расширения снова.");
   await chrome.storage.local.set({ updLock: Date.now() });
   try {
     const mf = await readManifest(dir);
     if (mf.name !== chrome.runtime.getManifest().name) throw new Error("В выбранной папке нет расширения «" + chrome.runtime.getManifest().name + "».");
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error("Не удалось скачать архив (" + res.status + ").");
-    const buf = await res.arrayBuffer();
+    onStep("Скачиваю архив…");
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
+    let buf;
+    try {
+      const res = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+      if (!res.ok) throw new Error("Не удалось скачать архив (" + res.status + ").");
+      buf = await res.arrayBuffer();
+    } catch (e) {
+      if (e && e.name === "AbortError") throw new Error("Архив не скачался за 30 секунд. GitHub может быть недоступен напрямую: включите прокси и повторите или скачайте архив вручную.");
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
     const h = new Uint8Array(buf.slice(0, 4));
     if (!(h[0] === 0x50 && h[1] === 0x4b)) throw new Error("По ссылке лежит не архив: релиз ещё собирается. Повторите через минуту.");
-    return await writeFiles(dir, await unzip(buf));
+    return await writeFiles(dir, await unzip(buf), onStep);
   } finally {
     await chrome.storage.local.set({ updLock: 0 });
   }
