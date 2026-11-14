@@ -55,7 +55,9 @@ async function unzip(buf) {
 }
 
 /* ---------- запись файлов в папку расширения ---------- */
-const SKIP = [/^secrets\.js$/, /^\.git/, /\.(md|txt)$/i]; // свои прокси и служебные файлы не трогаем
+const SKIP = [/^secrets(\.|$)/, /^\.git/, /\.(md|txt)$/i]; // свои прокси и служебные файлы не трогаем
+// Файлы, без которых расширение не работает. Если запись другого файла не удалась, он просто пропускается.
+const ESSENTIAL = /^(manifest\.json|[a-z]+\.(js|html|css)|icons\/[A-Za-z0-9._-]+)$/i;
 const NAME_OK = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
 const cleanName = (n) => n.replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^(\.\/)+/, "").replace(/^\/+/, "");
 
@@ -85,10 +87,11 @@ async function writeFiles(dir, all) {
       await w.write(f.data);
       await w.close();
     } catch (e) {
+      if (!ESSENTIAL.test(f.name)) { skipped.push(f.name); continue; }
       throw new Error("Не удалось записать файл «" + f.name + "»: " + ((e && e.message) || e));
     }
   }
-  return { count: list.length, skipped };
+  return { count: list.length - skipped.filter((n) => list.some((f) => f.name === n)).length, skipped };
 }
 
 /* ---------- скачать архив релиза и записать файлы ---------- */
